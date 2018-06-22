@@ -25,6 +25,6 @@
         android:id="@+id/btnEnviarFoto"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:hint="Enviar Foto" />
+        android:hint="Guardar Foto" />
 
 </LinearLayout>

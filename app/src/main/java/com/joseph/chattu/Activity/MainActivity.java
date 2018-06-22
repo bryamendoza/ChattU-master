@@ -1,5 +1,9 @@
 package com.joseph.chattu.Activity;
 
+
+import com.facebook.FacebookSdk;
+import com.facebook.appevents.AppEventsLogger;
+
 import android.Manifest;
 import android.app.Activity;
 import android.content.Intent;
@@ -8,6 +12,7 @@ import android.graphics.Bitmap;
 import android.net.Uri;
 import android.os.Bundle;
 import android.provider.MediaStore;
+import android.support.annotation.NonNull;
 import android.support.v4.app.ActivityCompat;
 import android.support.v7.app.AppCompatActivity;
 import android.support.v7.widget.LinearLayoutManager;
@@ -20,6 +25,12 @@ import android.widget.ImageView;
 import android.widget.TextView;
 
 import com.bumptech.glide.Glide;
+import com.google.android.gms.auth.api.Auth;
+import com.google.android.gms.auth.api.signin.GoogleSignInOptions;
+import com.google.android.gms.common.ConnectionResult;
+import com.google.android.gms.common.api.GoogleApiClient;
+import com.google.android.gms.common.api.ResultCallback;
+import com.google.android.gms.common.api.Status;
 import com.google.android.gms.tasks.OnSuccessListener;
 import com.google.firebase.auth.FirebaseAuth;
 import com.google.firebase.auth.FirebaseUser;
@@ -38,15 +49,17 @@ import de.hdodenhof.circleimageview.CircleImageView;
 import com.joseph.chattu.AdapterMensajes;
 import com.joseph.chattu.Entidades.MensajeEnviar;
 import com.joseph.chattu.Entidades.MensajeRecibir;
+import com.joseph.chattu.Entidades.Save;
 import com.joseph.chattu.Entidades.Usuario;
 import com.joseph.chattu.R;
-import android.os.Bundle;
+
+import android.widget.Toast;
 
 
-public class MainActivity extends AppCompatActivity implements View.OnClickListener {
+public class MainActivity extends AppCompatActivity implements View.OnClickListener, GoogleApiClient.OnConnectionFailedListener {
 
     private CircleImageView fotoPerfil;
-    private TextView nombre;
+    private TextView nombreTV;
     private RecyclerView rvMensajes;
     private EditText txtMensaje;
     private Button btnEnviar,cerrarSesion;
@@ -67,6 +80,14 @@ public class MainActivity extends AppCompatActivity implements View.OnClickListe
     private Button hacerFoto;
     private static final int CAMERA_REQUEST=123;
 
+    private GoogleApiClient googleApiClient;
+
+    private FirebaseAuth firebaseAuth;
+    private FirebaseAuth.AuthStateListener firebaseAuthListener;
+
+    //private CircleImageView photoImageView;
+    //private TextView emailTextView;
+
 
 
     @Override
@@ -77,13 +98,15 @@ public class MainActivity extends AppCompatActivity implements View.OnClickListe
         hacerFoto = (Button) findViewById(R.id.btnCamara);
 
         fotoPerfil = (CircleImageView) findViewById(R.id.fotoPerfil);
-        nombre = (TextView) findViewById(R.id.nombre);
+        nombreTV = (TextView) findViewById(R.id.txtnombre);
+
         rvMensajes = (RecyclerView) findViewById(R.id.rvMensajes);
         txtMensaje = (EditText) findViewById(R.id.txtMensaje);
         btnEnviar = (Button) findViewById(R.id.btnEnviar);
         btnEnviarFoto = (ImageButton) findViewById(R.id.btnEnviarFoto);
         cerrarSesion = (Button) findViewById(R.id.cerrarSesion);
         fotoPerfilCadena = "";
+
 
 
         database = FirebaseDatabase.getInstance();
@@ -96,14 +119,40 @@ public class MainActivity extends AppCompatActivity implements View.OnClickListe
         rvMensajes.setLayoutManager(l);
         rvMensajes.setAdapter(adapter);
 
+        //photoImageView = (CircleImageView) findViewById(R.id.fotoPerfil);
+        //emailTextView = (TextView) findViewById(R.id.txtnombre);
+
+
+        GoogleSignInOptions gso = new GoogleSignInOptions.Builder(GoogleSignInOptions.DEFAULT_SIGN_IN).requestEmail().build();
+
+        googleApiClient = new GoogleApiClient.Builder(this).enableAutoManage(this, this).addApi(Auth.GOOGLE_SIGN_IN_API, gso).build();
+
+        firebaseAuth = FirebaseAuth.getInstance();
+        firebaseAuthListener = new FirebaseAuth.AuthStateListener() {
+            @Override
+            public void onAuthStateChanged(@NonNull FirebaseAuth firebaseAuth) {
+                FirebaseUser userg= firebaseAuth.getCurrentUser();
+                if (userg != null) {
+                    setUserData(userg);
+                } else {
+                    goLogInScreen();
+                }
+            }
+        };
+
 
         hacerFoto.setOnClickListener(this);
 
         btnEnviar.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View view) {
-                databaseReference.push().setValue(new MensajeEnviar(txtMensaje.getText().toString(),NOMBRE_USUARIO,fotoPerfilCadena,"1", ServerValue.TIMESTAMP));
-                txtMensaje.setText("");
+                if(txtMensaje.getText().toString().isEmpty()) {
+
+                }else{
+
+                    databaseReference.push().setValue(new MensajeEnviar(txtMensaje.getText().toString(),NOMBRE_USUARIO, fotoPerfilCadena, "1", ServerValue.TIMESTAMP));
+                    txtMensaje.setText("");
+                }
             }
         });
 
@@ -112,6 +161,19 @@ public class MainActivity extends AppCompatActivity implements View.OnClickListe
             public void onClick(View view) {
                 FirebaseAuth.getInstance().signOut();
                 returnLogin();
+
+                firebaseAuth.signOut();
+
+                Auth.GoogleSignInApi.signOut(googleApiClient).setResultCallback(new ResultCallback<Status>() {
+                    @Override
+                    public void onResult(@NonNull Status status) {
+                        if (status.isSuccess()) {
+                            goLogInScreen();
+                        } else {
+                            Toast.makeText(getApplicationContext(), "No cerro sesion", Toast.LENGTH_SHORT).show();
+                        }
+                    }
+                });
             }
         });
 
@@ -202,6 +264,7 @@ public class MainActivity extends AppCompatActivity implements View.OnClickListe
 
 
         if(requestCode == PHOTO_SEND && resultCode == RESULT_OK){
+
             Uri u = data.getData();
             storageReference = storage.getReference("imagenes_enviadas_chat");//imagenes_chat
             final StorageReference fotoReferencia = storageReference.child(u.getLastPathSegment());
@@ -240,10 +303,12 @@ public class MainActivity extends AppCompatActivity implements View.OnClickListe
             reference.addListenerForSingleValueEvent(new ValueEventListener() {
                 @Override
                 public void onDataChange(DataSnapshot dataSnapshot) {
-                    Usuario usuario = dataSnapshot.getValue(Usuario.class);
-                    NOMBRE_USUARIO = usuario.getNombre();
-                    nombre.setText(NOMBRE_USUARIO);
-                    btnEnviar.setEnabled(true);
+                    Usuario User = dataSnapshot.getValue(Usuario.class);
+                    if  (User != null){
+                        NOMBRE_USUARIO = User.getNombre();
+                        nombreTV.setText(NOMBRE_USUARIO);
+                        btnEnviar.setEnabled(true);
+                    }
                 }
 
                 @Override
@@ -269,6 +334,41 @@ public class MainActivity extends AppCompatActivity implements View.OnClickListe
             startActivityForResult(intent, CAMERA_REQUEST);
         }
 
+    }
+
+    private void setUserData(FirebaseUser userg) {
+        NOMBRE_USUARIO = userg.getEmail();
+        nombreTV.setText(NOMBRE_USUARIO);
+        Glide.with(MainActivity.this).load(userg.getPhotoUrl()).into(fotoPerfil);
+        fotoPerfilCadena=userg.getPhotoUrl().toString();
+        btnEnviar.setEnabled(true);
+    }
+
+    @Override
+    protected void onStart() {
+        super.onStart();
+
+        firebaseAuth.addAuthStateListener(firebaseAuthListener);
+    }
+
+    private void goLogInScreen() {
+        Intent intent = new Intent(this, LoginActivity.class);
+        intent.addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP | Intent.FLAG_ACTIVITY_CLEAR_TASK | Intent.FLAG_ACTIVITY_NEW_TASK);
+        startActivity(intent);
+    }
+
+    @Override
+    public void onConnectionFailed(@NonNull ConnectionResult connectionResult) {
+
+    }
+
+    @Override
+    protected void onStop() {
+        super.onStop();
+
+        if (firebaseAuthListener != null) {
+            firebaseAuth.removeAuthStateListener(firebaseAuthListener);
+        }
     }
 
 }

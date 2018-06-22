@@ -16,8 +16,8 @@ import java.util.Calendar;
 
 public class Save {
     private Context TheThis;
-    private String NameOfFolder = "/Nuevacarpetaprueba";
-    private String NameOfFile = "pruebaApp";
+    private String NameOfFolder = "/ChattU_Camera";
+    private String NameOfFile = "ChattU_img";
 
     public void SaveImage(Context context, Bitmap ImageToSave) {
 
